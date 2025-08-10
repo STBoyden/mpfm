@@ -1,11 +1,9 @@
-//------------------------------------------------------------------------------
-// Project: mpfm
-// File: directory_provider.rs
-// Modified: 04/08/2025, 22:38
-//
-// Copyright (c) sboyden 2025.
-// All rights reserved.
-//------------------------------------------------------------------------------
+// File name: directory_provider.rs
+// Author: Samuel Boyden
+// Date created: 2025-08-04
+// Date modified: 2025-08-10
+// ------
+// Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
 use std::{
     fmt::Debug,
@@ -15,9 +13,14 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Directory {
+pub struct NodeInformation {
     pub full_path: String,
     pub metadata:  Metadata,
+}
+
+#[derive(Debug, Clone)]
+pub struct Directory {
+    pub node:      NodeInformation,
     pub can_read:  bool,
     pub can_write: bool,
 }
@@ -25,13 +28,16 @@ pub struct Directory {
 impl Directory {
     fn init(full_path: String, metadata: Metadata, can_read: bool, can_write: bool) -> Self {
         Self {
-            full_path,
-            metadata,
+            node: NodeInformation {
+                full_path,
+                metadata,
+            },
             can_read,
             can_write,
         }
     }
-    pub fn new_with_metadata(path: impl Into<PathBuf>, metadata: Metadata) -> Option<Self> {
+
+    pub fn new_with_metadata(path: impl Into<PathBuf>, metadata: &Metadata) -> Option<Self> {
         let path = path.into();
         let full_path = fs::canonicalize(path.clone())
             .ok()?
@@ -51,29 +57,94 @@ impl Directory {
             .open(&path)
             .is_ok();
 
-        Some(Self::init(full_path, metadata, can_read, can_write))
+        Some(Self::init(full_path, metadata.clone(), can_read, can_write))
     }
 
     pub fn new(path: impl Into<PathBuf>) -> Option<Self> {
         let path = path.into();
         let metadata = path.metadata().ok()?;
 
-        Self::new_with_metadata(path, metadata)
+        Self::new_with_metadata(path, &metadata)
     }
 
-    pub fn is_root(&self) -> bool { PathBuf::from(&self.full_path).ancestors().count() == 0 }
+    pub fn is_root(&self) -> bool { PathBuf::from(&self.node.full_path).ancestors().count() == 0 }
 }
 
 #[derive(Debug, Clone)]
 pub struct File {
-    pub full_path: String,
-    pub metadata:  Metadata,
+    pub node:      NodeInformation,
+    pub can_read:  bool,
+    pub can_write: bool,
+}
+
+impl File {
+    fn init(full_path: String, metadata: Metadata, can_read: bool, can_write: bool) -> Self {
+        Self {
+            node: NodeInformation {
+                full_path,
+                metadata,
+            },
+            can_read,
+            can_write,
+        }
+    }
+
+    pub fn new_with_metadata(path: impl Into<PathBuf>, metadata: &Metadata) -> Option<Self> {
+        let path = path.into();
+        let full_path = fs::canonicalize(path.clone())
+            .ok()?
+            .to_string_lossy()
+            .to_string();
+
+        let can_read = fs::File::options()
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(&path)
+            .is_ok();
+
+        let can_write = fs::File::options()
+            .write(true)
+            .create(false)
+            .open(&path)
+            .is_ok();
+
+        Some(Self::init(full_path, metadata.clone(), can_read, can_write))
+    }
+
+    pub fn new(path: impl Into<PathBuf>) -> Option<Self> {
+        let path = path.into();
+        let metadata = path.metadata().ok()?;
+
+        Self::new_with_metadata(path, &metadata)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Unsupported {
-    pub full_path: String,
-    pub metadata:  Metadata,
+    pub node: NodeInformation,
+}
+
+impl Unsupported {
+    fn init(full_path: String, metadata: Metadata) -> Self {
+        Self {
+            node: NodeInformation {
+                full_path,
+                metadata,
+            },
+        }
+    }
+
+    pub fn new(path: impl Into<PathBuf>) -> Option<Self> {
+        let path = path.into();
+        let metadata = path.metadata().ok()?;
+        let full_path = fs::canonicalize(path.clone())
+            .ok()?
+            .to_string_lossy()
+            .to_string();
+
+        Some(Self::init(full_path, metadata))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -86,9 +157,18 @@ pub enum DirectoryEntry {
 impl DirectoryEntry {
     pub fn get_basename(&self) -> String {
         match self {
-            DirectoryEntry::Directory(Directory { full_path, .. })
-            | DirectoryEntry::File(File { full_path, .. })
-            | DirectoryEntry::Unsupported(Unsupported { full_path, .. }) => Path::new(full_path)
+            DirectoryEntry::Directory(Directory {
+                node: NodeInformation { full_path, .. },
+                ..
+            })
+            | DirectoryEntry::File(File {
+                node: NodeInformation { full_path, .. },
+                ..
+            })
+            | DirectoryEntry::Unsupported(Unsupported {
+                node: NodeInformation { full_path, .. },
+                ..
+            }) => Path::new(full_path)
                 .file_name()
                 .map_or(full_path.clone(), |path| path.to_string_lossy().to_string()),
         }

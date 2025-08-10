@@ -1,26 +1,26 @@
-//------------------------------------------------------------------------------
-// Project: mpfm
-// File: main.rs
-// Modified: 04/08/2025, 22:19
-//
-// Copyright (c) sboyden 2025.
-// All rights reserved.
-//------------------------------------------------------------------------------
+// File name: main.rs
+// Author: Samuel Boyden
+// Date created: 2025-08-04
+// Date modified: 2025-08-10
+// ------
+// Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows
 #![warn(clippy::pedantic)]
 
 mod providers;
 
-use crate::providers::{Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, Unsupported};
+use crate::providers::{
+    Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation, Unsupported,
+};
 use eframe::egui;
-use std::path::{PathBuf, MAIN_SEPARATOR_STR};
+use std::path::{MAIN_SEPARATOR_STR, PathBuf};
 
 fn main() -> eframe::Result {
     env_logger::init();
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]),
         ..Default::default()
     };
 
@@ -54,8 +54,12 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                if let Some(DirectoryEntry::Directory(directory @ Directory { full_path, .. })) =
-                    self.provider.current_dir()
+                if let Some(DirectoryEntry::Directory(
+                    directory @ Directory {
+                        node: NodeInformation { full_path, .. },
+                        ..
+                    },
+                )) = self.provider.current_dir()
                     && !directory.is_root()
                 {
                     if ui.button("Go up").clicked() {
@@ -82,7 +86,10 @@ impl eframe::App for App {
                                 self.provider.select_entry(entry.clone());
                             }
                         }
-                        DirectoryEntry::Unsupported(Unsupported { full_path, .. }) => {
+                        DirectoryEntry::Unsupported(Unsupported {
+                            node: NodeInformation { full_path, .. },
+                            ..
+                        }) => {
                             ui.label(format!("Unsupported: {full_path}"));
                         }
                     }

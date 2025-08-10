@@ -1,16 +1,16 @@
-//------------------------------------------------------------------------------
-// Project: mpfm
-// File: local_fs.rs
-// Modified: 04/08/2025, 22:37
-//
-// Copyright (c) sboyden 2025.
-// All rights reserved.
-//------------------------------------------------------------------------------
+// File name: local_fs.rs
+// Author: Samuel Boyden
+// Date created: 2025-08-04
+// Date modified: 2025-08-10
+// ------
+// Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
 use crate::providers::{
-    Directory, DirectoryEntry, DirectoryProvider, File, GetEntriesOptions, Unsupported,
+    Directory, DirectoryEntry, DirectoryProvider, File, GetEntriesOptions, NodeInformation,
+    Unsupported,
 };
-use std::{cell::RefCell, cmp, collections::HashMap, fs, path::PathBuf};
+use rayon::prelude::*;
+use std::{cell::RefCell, cmp, collections::HashMap, fs, path::PathBuf, sync::RwLock};
 
 #[derive(Debug)]
 pub struct LocalFS {
@@ -22,7 +22,7 @@ impl LocalFS {
     pub fn new_from_directory_path(path: impl Into<PathBuf>) -> Self {
         if let Ok(dir) = fs::canonicalize(path.into())
             && let Some(full_path) = dir.to_str().map(String::from)
-            && let Ok(metadata) = dir.metadata()
+            && let Ok(ref metadata) = dir.metadata()
             && let file_type = metadata.file_type()
             && file_type.is_dir()
             && let Some(directory) = Directory::new_with_metadata(&full_path, metadata)
@@ -49,56 +49,59 @@ impl DirectoryProvider for LocalFS {
         {
             log::trace!("looking at directory: {directory:?}");
 
-            if let Some(cached) = self.cache.borrow().get(&directory.full_path) {
+            if let Some(cached) = self.cache.borrow().get(&directory.node.full_path) {
                 return cached.clone();
             }
 
-            let readdir = fs::read_dir(&directory.full_path);
+            let readdir = fs::read_dir(&directory.node.full_path);
             if let Err(error) = readdir {
                 log::error!(
                     "could not get Ok fs::read_dir result from {}: {error}",
-                    directory.full_path
+                    directory.node.full_path
                 );
                 return vec![];
             }
-            let readdir = readdir.unwrap();
+            let readdir = readdir.unwrap().par_bridge();
 
             let mut entries = vec![];
-            for entry in readdir.filter_map(Result::ok) {
+            let entries = RwLock::new(&mut entries);
+
+            readdir.filter_map(Result::ok).for_each(|entry| {
+                let Ok(mut entries) = entries.write() else {
+                    return;
+                };
+
                 let Ok(Ok(full_path)) =
                     fs::canonicalize(entry.path()).map(|p| p.into_os_string().into_string())
                 else {
                     log::warn!("could not convert canonicalized PathBuf to String: {entry:?}");
-                    continue;
+                    return;
                 };
 
                 let Ok(file_type) = entry.file_type() else {
                     log::warn!("could not get file type for entry: {entry:?}");
-                    continue;
-                };
-
-                let Ok(metadata) = entry.metadata() else {
-                    log::warn!("could not get metadata for entry: {entry:?}");
-                    continue;
+                    return;
                 };
 
                 if file_type.is_dir()
-                    && let Some(directory) =
-                        Directory::new_with_metadata(&full_path, metadata.clone())
+                    && let Some(directory) = Directory::new(&full_path)
                 {
-                    entries.push(DirectoryEntry::Directory(directory.clone()));
-                } else if file_type.is_file() {
-                    entries.push(DirectoryEntry::File(File {
-                        full_path,
-                        metadata,
-                    }));
-                } else {
-                    entries.push(DirectoryEntry::Unsupported(Unsupported {
-                        full_path,
-                        metadata,
-                    }));
+                    entries.push(DirectoryEntry::Directory(directory));
+                } else if file_type.is_file()
+                    && let Some(file) = File::new(&full_path)
+                {
+                    entries.push(DirectoryEntry::File(file));
+                } else if let Some(unsupported) = Unsupported::new(&full_path) {
+                    entries.push(DirectoryEntry::Unsupported(unsupported));
                 }
-            }
+            });
+
+            let Ok(entries) = entries.read() else {
+                return vec![];
+            };
+            let mut entries = (**entries).clone();
+
+            // for entry in readdir.filter_map(Result::ok) {}
 
             if options.sort_directories_first {
                 entries.sort_by(|a, b| match (a, b) {
@@ -108,18 +111,34 @@ impl DirectoryProvider for LocalFS {
                     | (_, DirectoryEntry::Unsupported(_)) => cmp::Ordering::Greater,
                     (
                         DirectoryEntry::Directory(Directory {
-                            full_path: a_path, ..
+                            node:
+                                NodeInformation {
+                                    full_path: a_path, ..
+                                },
+                            ..
                         }),
                         DirectoryEntry::Directory(Directory {
-                            full_path: b_path, ..
+                            node:
+                                NodeInformation {
+                                    full_path: b_path, ..
+                                },
+                            ..
                         }),
                     )
                     | (
                         DirectoryEntry::File(File {
-                            full_path: a_path, ..
+                            node:
+                                NodeInformation {
+                                    full_path: a_path, ..
+                                },
+                            ..
                         }),
                         DirectoryEntry::File(File {
-                            full_path: b_path, ..
+                            node:
+                                NodeInformation {
+                                    full_path: b_path, ..
+                                },
+                            ..
                         }),
                     ) => a_path.cmp(b_path),
                 });
@@ -127,7 +146,7 @@ impl DirectoryProvider for LocalFS {
 
             self.cache
                 .borrow_mut()
-                .insert(directory.full_path.clone(), entries.clone());
+                .insert(directory.node.full_path.clone(), entries.clone());
 
             entries
         } else {
@@ -143,7 +162,10 @@ impl DirectoryProvider for LocalFS {
                 }
             }
             DirectoryEntry::File(File {
-                full_path: name, ..
+                node: NodeInformation {
+                    full_path: name, ..
+                },
+                ..
             }) => {
                 log::info!("selected file: {name}");
             }

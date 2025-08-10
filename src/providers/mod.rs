@@ -1,11 +1,9 @@
-//------------------------------------------------------------------------------
-// Project: mpfm
-// File: mod.rs
-// Modified: 04/08/2025, 21:56
-//
-// Copyright (c) sboyden 2025.
-// All rights reserved.
-//------------------------------------------------------------------------------
+// File name: mod.rs
+// Author: Samuel Boyden
+// Date created: 2025-08-04
+// Date modified: 2025-08-10
+// ------
+// Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
 mod directory_provider;
 mod local_fs;
