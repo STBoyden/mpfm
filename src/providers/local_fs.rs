@@ -5,12 +5,15 @@
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
-use crate::providers::{
-    Directory, DirectoryEntry, DirectoryProvider, File, GetEntriesOptions, NodeInformation,
-    Unsupported,
+use crate::{
+    providers::{
+        Directory, DirectoryEntry, DirectoryProvider, File, GetEntriesOptions, NodeInformation,
+        Unsupported,
+    },
+    utils::pretty_duration,
 };
 use rayon::prelude::*;
-use std::{cell::RefCell, cmp, collections::HashMap, fs, path::PathBuf, sync::RwLock};
+use std::{cell::RefCell, cmp, collections::HashMap, fs, path::PathBuf, sync::RwLock, time};
 
 #[derive(Debug)]
 pub struct LocalFS {
@@ -47,8 +50,6 @@ impl DirectoryProvider for LocalFS {
         if let Some(current) = &self.current_dir
             && let DirectoryEntry::Directory(directory) = current
         {
-            log::trace!("looking at directory: {directory:?}");
-
             if let Some(cached) = self.cache.borrow().get(&directory.node.full_path) {
                 return cached.clone();
             }
@@ -65,6 +66,13 @@ impl DirectoryProvider for LocalFS {
 
             let mut entries = vec![];
             let entries = RwLock::new(&mut entries);
+
+            log::trace!(
+                "reading directory entries for: {}",
+                directory.node.full_path
+            );
+
+            let took = time::Instant::now();
 
             readdir.filter_map(Result::ok).for_each(|entry| {
                 let Ok(mut entries) = entries.write() else {
@@ -95,6 +103,12 @@ impl DirectoryProvider for LocalFS {
                     entries.push(DirectoryEntry::Unsupported(unsupported));
                 }
             });
+
+            log::trace!(
+                "reading {} took {}",
+                directory.node.full_path,
+                pretty_duration(&took.elapsed())
+            );
 
             let Ok(entries) = entries.read() else {
                 return vec![];
@@ -167,7 +181,7 @@ impl DirectoryProvider for LocalFS {
                 },
                 ..
             }) => {
-                log::info!("selected file: {name}");
+                log::trace!("selected file: {name}");
             }
             _ => (),
         }

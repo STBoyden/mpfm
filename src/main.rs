@@ -7,8 +7,10 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows
 #![warn(clippy::pedantic)]
+#![allow(clippy::too_many_lines)]
 
 mod providers;
+mod utils;
 
 use crate::providers::{
     Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation, Unsupported,
@@ -16,7 +18,15 @@ use crate::providers::{
 use eframe::egui;
 use std::path::{MAIN_SEPARATOR_STR, PathBuf};
 
+#[cfg(not(debug_assertions))]
+const ENV_FILE: &str = ".env";
+#[cfg(debug_assertions)]
+const ENV_FILE: &str = ".env.debug";
+
 fn main() -> eframe::Result {
+    dotenv::from_filename(ENV_FILE)
+        .map_err(|error| eprintln!("Couldn't load env from file {ENV_FILE}: {error}"))
+        .ok();
     env_logger::init();
 
     let options = eframe::NativeOptions {
