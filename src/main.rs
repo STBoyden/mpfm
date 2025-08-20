@@ -1,7 +1,7 @@
 // File name: main.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-04
-// Date modified: 2025-08-10
+// Date modified: 2025-08-21
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
@@ -13,9 +13,11 @@ mod providers;
 mod utils;
 
 use crate::providers::{
-    Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation, Unsupported,
+    Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation, ProviderReceiver,
+    Unsupported,
 };
 use eframe::egui;
+use egui::{Color32, RichText};
 use std::path::{MAIN_SEPARATOR_STR, PathBuf};
 
 #[cfg(not(debug_assertions))]
@@ -43,21 +45,29 @@ fn main() -> eframe::Result {
 
 #[derive(Debug)]
 struct App {
-    provider: Box<dyn DirectoryProvider>,
+    provider:      Box<dyn DirectoryProvider>,
+    error_history: Vec<anyhow::Error>,
+    error_rx:      ProviderReceiver,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let local_fs = LocalFS::new_from_directory_path(".");
+        let (local_fs, error_rx) = LocalFS::new_from_directory_path(".");
 
         Self {
             provider: Box::new(local_fs),
+            error_history: vec![],
+            error_rx,
         }
     }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Ok(error) = self.error_rx.try_recv() {
+            self.error_history.push(error);
+        }
+
         egui::SidePanel::left("folder_panel").show(ctx, |ui| {
             ui.label("Folder panel");
         });
@@ -106,5 +116,13 @@ impl eframe::App for App {
                 }
             });
         });
+
+        if !self.error_history.is_empty() {
+            egui::SidePanel::right("error_panel").show(ctx, |ui| {
+                for error in self.error_history.iter().clone().rev() {
+                    ui.monospace(RichText::new(format!("{error}")).color(Color32::RED));
+                }
+            });
+        }
     }
 }

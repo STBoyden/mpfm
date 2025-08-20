@@ -1,45 +1,62 @@
 // File name: local_fs.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-04
-// Date modified: 2025-08-10
+// Date modified: 2025-08-21
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
 use crate::{
     providers::{
         Directory, DirectoryEntry, DirectoryProvider, File, GetEntriesOptions, NodeInformation,
-        Unsupported,
+        ProviderReceiver, ProviderSender, Unsupported,
     },
     utils::pretty_duration,
 };
+use anyhow::anyhow;
 use rayon::prelude::*;
-use std::{cell::RefCell, cmp, collections::HashMap, fs, path::PathBuf, sync::RwLock, time};
+use std::{
+    cell::RefCell,
+    cmp,
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{RwLock, mpsc},
+    time,
+};
 
 #[derive(Debug)]
 pub struct LocalFS {
     current_dir: Option<DirectoryEntry>,
     cache:       RefCell<HashMap<String, Vec<DirectoryEntry>>>,
+    error_tx:    ProviderSender,
 }
 
 impl LocalFS {
-    pub fn new_from_directory_path(path: impl Into<PathBuf>) -> Self {
-        if let Ok(dir) = fs::canonicalize(path.into())
-            && let Some(full_path) = dir.to_str().map(String::from)
-            && let Ok(ref metadata) = dir.metadata()
-            && let file_type = metadata.file_type()
-            && file_type.is_dir()
-            && let Some(directory) = Directory::new_with_metadata(&full_path, metadata)
-        {
-            Self {
-                current_dir: Some(DirectoryEntry::Directory(directory)),
-                cache:       RefCell::new(HashMap::new()),
-            }
-        } else {
-            Self {
-                current_dir: None,
-                cache:       RefCell::new(HashMap::new()),
-            }
-        }
+    pub fn new_from_directory_path(path: impl Into<PathBuf>) -> (Self, ProviderReceiver) {
+        let (tx, rx) = mpsc::channel();
+
+        (
+            if let Ok(dir) = fs::canonicalize(path.into())
+                && let Some(full_path) = dir.to_str().map(String::from)
+                && let Ok(ref metadata) = dir.metadata()
+                && let file_type = metadata.file_type()
+                && file_type.is_dir()
+                && let Some(directory) = Directory::new_with_metadata(&full_path, metadata)
+            {
+                Self {
+                    current_dir: Some(DirectoryEntry::Directory(directory)),
+                    cache:       RefCell::new(HashMap::new()),
+                    error_tx:    tx,
+                }
+            } else {
+                Self {
+                    current_dir: None,
+                    cache:       RefCell::new(HashMap::new()),
+                    error_tx:    tx,
+                }
+            },
+            rx,
+        )
     }
 }
 
@@ -60,6 +77,8 @@ impl DirectoryProvider for LocalFS {
                     "could not get Ok fs::read_dir result from {}: {error}",
                     directory.node.full_path
                 );
+                self.send_error(anyhow!(error));
+
                 return vec![];
             }
             let readdir = readdir.unwrap().par_bridge();
@@ -182,9 +201,20 @@ impl DirectoryProvider for LocalFS {
                 ..
             }) => {
                 log::trace!("selected file: {name}");
+
+                if let Err(error) = open::that(name) {
+                    log::error!("couldn't open \"{name}\": {error}");
+                    self.send_error(anyhow!(error));
+                }
             }
             _ => (),
         }
     }
     fn current_dir(&self) -> Option<&DirectoryEntry> { self.current_dir.as_ref() }
+
+    fn send_error(&self, error: anyhow::Error) {
+        if let Err(error) = self.error_tx.send(error) {
+            log::error!("could not send error to front-end: {error}")
+        }
+    }
 }

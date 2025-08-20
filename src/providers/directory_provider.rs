@@ -1,15 +1,15 @@
 // File name: directory_provider.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-04
-// Date modified: 2025-08-10
+// Date modified: 2025-08-21
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
 use std::{
     fmt::Debug,
-    fs,
-    fs::Metadata,
+    fs::{self, Metadata},
     path::{Path, PathBuf},
+    sync::mpsc,
 };
 
 #[derive(Debug, Clone)]
@@ -188,9 +188,13 @@ impl Default for GetEntriesOptions {
     }
 }
 
+pub type ProviderReceiver = mpsc::Receiver<anyhow::Error>;
+pub type ProviderSender = mpsc::Sender<anyhow::Error>;
+
 pub trait DirectoryProvider: Debug {
     fn get_entries_with_options(&self, options: Option<GetEntriesOptions>) -> Vec<DirectoryEntry>;
     fn get_entries(&self) -> Vec<DirectoryEntry> { self.get_entries_with_options(None) }
     fn select_entry(&mut self, entry: DirectoryEntry);
     fn current_dir(&self) -> Option<&DirectoryEntry>;
+    fn send_error(&self, error: anyhow::Error);
 }
