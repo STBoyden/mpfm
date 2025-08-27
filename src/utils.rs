@@ -1,7 +1,7 @@
 // File name: utils.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-10
-// Date modified: 2025-08-10
+// Date modified: 2025-08-27
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
@@ -13,7 +13,7 @@ use std::{
 };
 
 pub(crate) fn pretty_duration(duration: &time::Duration) -> String {
-    _pretty_duration(duration, None)
+    return _pretty_duration(duration, None);
 }
 
 #[derive(Debug, Clone)]

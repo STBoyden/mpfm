@@ -1,7 +1,7 @@
 // File name: local_fs.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-04
-// Date modified: 2025-08-21
+// Date modified: 2025-08-27
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
@@ -19,8 +19,8 @@ use std::{
     cmp,
     collections::HashMap,
     fs,
-    path::PathBuf,
-    sync::{Arc, RwLock, mpsc},
+    path::{self, PathBuf},
+    sync::{RwLock, mpsc},
     time,
 };
 
@@ -39,7 +39,7 @@ impl LocalFS {
         let (entry_tx, entry_rx) = mpsc::channel();
         let (error_tx, error_rx) = mpsc::channel();
 
-        (
+        return (
             if let Ok(dir) = fs::canonicalize(path.into())
                 && let Some(full_path) = dir.to_str().map(String::from)
                 && let Ok(ref metadata) = dir.metadata()
@@ -63,7 +63,7 @@ impl LocalFS {
             },
             entry_rx,
             error_rx,
-        )
+        );
     }
 }
 
@@ -109,7 +109,7 @@ impl DirectoryProvider for LocalFS {
                 };
 
                 let Ok(Ok(full_path)) =
-                    fs::canonicalize(entry.path()).map(|p| p.into_os_string().into_string())
+                    fs::canonicalize(entry.path()).map(|p| return p.into_os_string().into_string())
                 else {
                     log::warn!("could not convert canonicalized PathBuf to String: {entry:?}");
                     return;
@@ -149,9 +149,9 @@ impl DirectoryProvider for LocalFS {
             if options.sort_directories_first {
                 entries.sort_by(|a, b| match (a, b) {
                     (DirectoryEntry::Directory(_), DirectoryEntry::File(_))
-                    | (DirectoryEntry::Unsupported(_), _) => cmp::Ordering::Less,
+                    | (DirectoryEntry::Unsupported(_), _) => return cmp::Ordering::Less,
                     (DirectoryEntry::File(_), DirectoryEntry::Directory(_))
-                    | (_, DirectoryEntry::Unsupported(_)) => cmp::Ordering::Greater,
+                    | (_, DirectoryEntry::Unsupported(_)) => return cmp::Ordering::Greater,
                     (
                         DirectoryEntry::Directory(Directory {
                             node:
@@ -183,7 +183,7 @@ impl DirectoryProvider for LocalFS {
                                 },
                             ..
                         }),
-                    ) => a_path.cmp(b_path),
+                    ) => return a_path.cmp(b_path),
                 });
             }
 
@@ -219,7 +219,7 @@ impl DirectoryProvider for LocalFS {
             _ => (),
         }
     }
-    fn current_dir(&self) -> Option<&DirectoryEntry> { self.current_dir.as_ref() }
+    fn current_dir(&self) -> Option<&DirectoryEntry> { return self.current_dir.as_ref() }
 
     fn send_entries(&self, entries: Vec<DirectoryEntry>) {
         if let Err(error) = self.entry_tx.send(entries) {
@@ -230,7 +230,19 @@ impl DirectoryProvider for LocalFS {
 
     fn send_error(&self, error: anyhow::Error) {
         if let Err(error) = self.error_tx.send(error) {
-            log::error!("could not send error to front-end: {error}")
+            log::error!("could not send error to front-end: {error}");
         }
+    }
+
+    fn get_dir_parts(&self) -> Vec<String> {
+        if let Some(ref entry) = self.current_dir {
+            return entry
+                .get_basename()
+                .split(path::MAIN_SEPARATOR_STR)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+        }
+
+        return vec![];
     }
 }

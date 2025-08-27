@@ -1,7 +1,7 @@
 // File name: directory_provider.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-04
-// Date modified: 2025-08-21
+// Date modified: 2025-08-27
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
@@ -38,14 +38,14 @@ pub struct Directory {
 
 impl Directory {
     fn init(full_path: String, metadata: Metadata, can_read: bool, can_write: bool) -> Self {
-        Self {
+        return Self {
             node: NodeInformation {
                 full_path,
                 metadata,
             },
             can_read,
             can_write,
-        }
+        };
     }
 
     pub fn new_with_metadata(path: impl Into<PathBuf>, metadata: &Metadata) -> Option<Self> {
@@ -68,17 +68,19 @@ impl Directory {
             .open(&path)
             .is_ok();
 
-        Some(Self::init(full_path, metadata.clone(), can_read, can_write))
+        return Some(Self::init(full_path, metadata.clone(), can_read, can_write));
     }
 
     pub fn new(path: impl Into<PathBuf>) -> Option<Self> {
         let path = path.into();
         let metadata = path.metadata().ok()?;
 
-        Self::new_with_metadata(path, &metadata)
+        return Self::new_with_metadata(path, &metadata);
     }
 
-    pub fn is_root(&self) -> bool { PathBuf::from(&self.node.full_path).ancestors().count() == 0 }
+    pub fn is_root(&self) -> bool {
+        return PathBuf::from(&self.node.full_path).ancestors().count() == 0;
+    }
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -90,14 +92,14 @@ pub struct File {
 
 impl File {
     fn init(full_path: String, metadata: Metadata, can_read: bool, can_write: bool) -> Self {
-        Self {
+        return Self {
             node: NodeInformation {
                 full_path,
                 metadata,
             },
             can_read,
             can_write,
-        }
+        };
     }
 
     pub fn new_with_metadata(path: impl Into<PathBuf>, metadata: &Metadata) -> Option<Self> {
@@ -120,14 +122,14 @@ impl File {
             .open(&path)
             .is_ok();
 
-        Some(Self::init(full_path, metadata.clone(), can_read, can_write))
+        return Some(Self::init(full_path, metadata.clone(), can_read, can_write));
     }
 
     pub fn new(path: impl Into<PathBuf>) -> Option<Self> {
         let path = path.into();
         let metadata = path.metadata().ok()?;
 
-        Self::new_with_metadata(path, &metadata)
+        return Self::new_with_metadata(path, &metadata);
     }
 }
 
@@ -138,12 +140,12 @@ pub struct Unsupported {
 
 impl Unsupported {
     fn init(full_path: String, metadata: Metadata) -> Self {
-        Self {
+        return Self {
             node: NodeInformation {
                 full_path,
                 metadata,
             },
-        }
+        };
     }
 
     pub fn new(path: impl Into<PathBuf>) -> Option<Self> {
@@ -154,7 +156,7 @@ impl Unsupported {
             .to_string_lossy()
             .to_string();
 
-        Some(Self::init(full_path, metadata))
+        return Some(Self::init(full_path, metadata));
     }
 }
 
@@ -179,9 +181,13 @@ impl DirectoryEntry {
             | DirectoryEntry::Unsupported(Unsupported {
                 node: NodeInformation { full_path, .. },
                 ..
-            }) => Path::new(full_path)
-                .file_name()
-                .map_or(full_path.clone(), |path| path.to_string_lossy().to_string()),
+            }) => {
+                return Path::new(full_path)
+                    .file_name()
+                    .map_or(full_path.clone(), |path| {
+                        return path.to_string_lossy().to_string();
+                    });
+            }
         }
     }
 }
@@ -193,9 +199,9 @@ pub struct GetEntriesOptions {
 
 impl Default for GetEntriesOptions {
     fn default() -> Self {
-        Self {
+        return Self {
             sort_directories_first: true,
-        }
+        };
     }
 }
 
@@ -210,6 +216,7 @@ pub trait DirectoryProvider: Debug {
 
     fn select_entry(&mut self, ctx: &egui::Context, entry: DirectoryEntry);
     fn current_dir(&self) -> Option<&DirectoryEntry>;
+    fn get_dir_parts(&self) -> Vec<String>;
 
     fn send_entries(&self, entries: Vec<DirectoryEntry>);
     fn send_error(&self, error: anyhow::Error);

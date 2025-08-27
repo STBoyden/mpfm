@@ -1,13 +1,13 @@
 // File name: main.rs
 // Author: Samuel Boyden
 // Date created: 2025-08-04
-// Date modified: 2025-08-21
+// Date modified: 2025-08-27
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows
-#![warn(clippy::pedantic)]
-#![allow(clippy::too_many_lines)]
+#![warn(clippy::pedantic, clippy::implicit_return)]
+#![allow(clippy::too_many_lines, clippy::needless_return)]
 
 mod providers;
 mod utils;
@@ -39,11 +39,11 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    eframe::run_native(
+    return eframe::run_native(
         "Multiplatform File Manager",
         options,
-        Box::new(|_| Ok(Box::<App>::default())),
-    )
+        Box::new(|_| return Ok(Box::<App>::default())),
+    );
 }
 
 #[derive(Debug)]
@@ -73,13 +73,13 @@ impl Default for App {
     fn default() -> Self {
         let (local_fs, entry_rx, error_rx) = LocalFS::new_from_directory_path(".");
 
-        Self {
+        return Self {
             provider: Box::new(local_fs),
             entries: vec![],
             error_history: vec![],
             entry_rx,
             error_rx,
-        }
+        };
     }
 }
 
@@ -92,6 +92,19 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let parts = self.provider.get_dir_parts();
+
+                for (index, part) in parts.iter().enumerate() {
+                    if index + 1 == parts.len() {
+                        ui.colored_label(Color32::LIGHT_GRAY, part);
+                    } else {
+                        ui.label(part);
+                    }
+                }
+            });
+            ui.separator();
+
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if let Some(DirectoryEntry::Directory(
                     directory @ Directory {
