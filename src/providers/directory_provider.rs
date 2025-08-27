@@ -8,6 +8,7 @@
 use std::{
     fmt::Debug,
     fs::{self, Metadata},
+    hash,
     path::{Path, PathBuf},
     sync::mpsc,
 };
@@ -18,7 +19,17 @@ pub struct NodeInformation {
     pub metadata:  Metadata,
 }
 
-#[derive(Debug, Clone)]
+impl hash::Hash for NodeInformation {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) { state.write(self.full_path.as_bytes()); }
+}
+
+impl PartialEq for NodeInformation {
+    fn eq(&self, other: &Self) -> bool { return self.full_path == other.full_path }
+}
+
+impl Eq for NodeInformation {}
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Directory {
     pub node:      NodeInformation,
     pub can_read:  bool,
@@ -70,7 +81,7 @@ impl Directory {
     pub fn is_root(&self) -> bool { PathBuf::from(&self.node.full_path).ancestors().count() == 0 }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct File {
     pub node:      NodeInformation,
     pub can_read:  bool,
@@ -120,7 +131,7 @@ impl File {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Unsupported {
     pub node: NodeInformation,
 }
@@ -147,7 +158,7 @@ impl Unsupported {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum DirectoryEntry {
     Directory(Directory),
     File(File),
@@ -188,13 +199,18 @@ impl Default for GetEntriesOptions {
     }
 }
 
-pub type ProviderReceiver = mpsc::Receiver<anyhow::Error>;
-pub type ProviderSender = mpsc::Sender<anyhow::Error>;
+pub type ProviderEntryReceiver = mpsc::Receiver<Vec<DirectoryEntry>>;
+pub type ProviderEntrySender = mpsc::Sender<Vec<DirectoryEntry>>;
+pub type ProviderErrorReceiver = mpsc::Receiver<anyhow::Error>;
+pub type ProviderErrorSender = mpsc::Sender<anyhow::Error>;
 
 pub trait DirectoryProvider: Debug {
-    fn get_entries_with_options(&self, options: Option<GetEntriesOptions>) -> Vec<DirectoryEntry>;
-    fn get_entries(&self) -> Vec<DirectoryEntry> { self.get_entries_with_options(None) }
-    fn select_entry(&mut self, entry: DirectoryEntry);
+    fn get_entries_with_options(&self, options: Option<GetEntriesOptions>);
+    fn get_entries(&self) { self.get_entries_with_options(None) }
+
+    fn select_entry(&mut self, ctx: &egui::Context, entry: DirectoryEntry);
     fn current_dir(&self) -> Option<&DirectoryEntry>;
+
+    fn send_entries(&self, entries: Vec<DirectoryEntry>);
     fn send_error(&self, error: anyhow::Error);
 }

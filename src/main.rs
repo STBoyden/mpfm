@@ -13,12 +13,15 @@ mod providers;
 mod utils;
 
 use crate::providers::{
-    Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation, ProviderReceiver,
-    Unsupported,
+    Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation,
+    ProviderEntryReceiver, ProviderErrorReceiver, Unsupported,
 };
 use eframe::egui;
 use egui::{Color32, RichText};
-use std::path::{MAIN_SEPARATOR_STR, PathBuf};
+use std::{
+    path::{MAIN_SEPARATOR_STR, PathBuf},
+    vec,
+};
 
 #[cfg(not(debug_assertions))]
 const ENV_FILE: &str = ".env";
@@ -46,17 +49,35 @@ fn main() -> eframe::Result {
 #[derive(Debug)]
 struct App {
     provider:      Box<dyn DirectoryProvider>,
+    entries:       Vec<DirectoryEntry>,
     error_history: Vec<anyhow::Error>,
-    error_rx:      ProviderReceiver,
+    entry_rx:      ProviderEntryReceiver,
+    error_rx:      ProviderErrorReceiver,
+}
+
+impl App {
+    fn receive_from_channels(&mut self) {
+        self.provider.get_entries();
+
+        if let Ok(error) = self.error_rx.try_recv() {
+            self.error_history.push(error);
+        }
+
+        if let Ok(entries) = self.entry_rx.try_recv() {
+            self.entries = entries;
+        }
+    }
 }
 
 impl Default for App {
     fn default() -> Self {
-        let (local_fs, error_rx) = LocalFS::new_from_directory_path(".");
+        let (local_fs, entry_rx, error_rx) = LocalFS::new_from_directory_path(".");
 
         Self {
             provider: Box::new(local_fs),
+            entries: vec![],
             error_history: vec![],
+            entry_rx,
             error_rx,
         }
     }
@@ -64,9 +85,7 @@ impl Default for App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Ok(error) = self.error_rx.try_recv() {
-            self.error_history.push(error);
-        }
+        self.receive_from_channels();
 
         egui::SidePanel::left("folder_panel").show(ctx, |ui| {
             ui.label("Folder panel");
@@ -89,13 +108,13 @@ impl eframe::App for App {
                         };
 
                         self.provider
-                            .select_entry(DirectoryEntry::Directory(directory));
+                            .select_entry(ctx, DirectoryEntry::Directory(directory));
                     }
 
                     ui.separator();
                 }
 
-                for entry in &self.provider.get_entries() {
+                for entry in &self.entries {
                     match entry {
                         DirectoryEntry::Directory(Directory { .. })
                         | DirectoryEntry::File(File { .. }) => {
@@ -103,7 +122,7 @@ impl eframe::App for App {
                                 .button(format!("{MAIN_SEPARATOR_STR}{}", entry.get_basename()))
                                 .clicked()
                             {
-                                self.provider.select_entry(entry.clone());
+                                self.provider.select_entry(ctx, entry.clone());
                             }
                         }
                         DirectoryEntry::Unsupported(Unsupported {
