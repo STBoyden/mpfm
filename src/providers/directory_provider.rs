@@ -190,6 +190,14 @@ impl DirectoryEntry {
             }
         }
     }
+
+    pub fn get_node_information(&self) -> &NodeInformation {
+        return match self {
+            DirectoryEntry::Directory(directory) => &directory.node,
+            DirectoryEntry::File(file) => &file.node,
+            DirectoryEntry::Unsupported(unsupported) => &unsupported.node,
+        };
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

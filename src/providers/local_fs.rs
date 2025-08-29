@@ -237,9 +237,11 @@ impl DirectoryProvider for LocalFS {
     fn get_dir_parts(&self) -> Vec<String> {
         if let Some(ref entry) = self.current_dir {
             return entry
-                .get_basename()
+                .get_node_information()
+                .full_path
                 .split(path::MAIN_SEPARATOR_STR)
                 .map(str::to_owned)
+                .filter(|s| return !s.is_empty())
                 .collect::<Vec<_>>();
         }
 

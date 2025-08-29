@@ -96,12 +96,18 @@ impl eframe::App for App {
                 let parts = self.provider.get_dir_parts();
 
                 for (index, part) in parts.iter().enumerate() {
+                    ui.colored_label(Color32::DARK_GRAY, MAIN_SEPARATOR_STR);
+
                     if index + 1 == parts.len() {
                         ui.colored_label(Color32::LIGHT_GRAY, part);
                     } else {
-                        ui.label(part);
+                        if ui.button(part).clicked() {}
                     }
                 }
+
+                ui.separator();
+
+                if ui.button("Edit").clicked() {}
             });
             ui.separator();
 
