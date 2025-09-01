@@ -7,22 +7,56 @@
 
 use crate::{
     providers::{
-        Directory, DirectoryEntry, DirectoryProvider, File, GetEntriesOptions, NodeInformation,
-        ProviderEntryReceiver, ProviderEntrySender, ProviderErrorReceiver, ProviderErrorSender,
-        Unsupported,
+        Directory, DirectoryEntry, DirectoryProvider, EditError, EditResult, File,
+        GetEntriesOptions, NodeInformation, ProviderEntryReceiver, ProviderEntrySender,
+        ProviderError, ProviderErrorReceiver, ProviderErrorSender, Unsupported,
     },
-    utils::{ArcRwLock, pretty_duration},
+    utils::{ArcRwLock, normalise_path, pretty_duration},
 };
 use anyhow::anyhow;
 use rayon::prelude::*;
 use std::{
     cmp,
     collections::HashMap,
-    fs,
+    fmt::{self},
+    fs, io,
     path::{self, PathBuf},
     sync::{RwLock, mpsc},
     time,
 };
+
+#[derive(Debug, thiserror::Error)]
+pub enum LocalFSError {
+    CouldNotGetEntryFromPath(String),
+    PathIsNotADirectory(String),
+    PathCouldNotBeNormalised(String),
+    StdIOError(#[from] io::Error),
+}
+
+impl ProviderError for LocalFSError {}
+
+impl fmt::Display for LocalFSError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let result = match self {
+            Self::CouldNotGetEntryFromPath(path) => {
+                format!("Could not get entry for given path: {path}")
+            }
+            Self::PathIsNotADirectory(path) => {
+                format!("Given path \"{path}\" was not a directory")
+            }
+            Self::PathCouldNotBeNormalised(path) => {
+                format!("Given path \"{path}\" could not be normalised")
+            }
+            Self::StdIOError(error) => {
+                format!("Got a std::io::Error: {error}")
+            }
+        };
+
+        return f.write_str(&result);
+    }
+}
+
+type LocalFSResult<T> = Result<T, LocalFSError>;
 
 #[derive(Debug)]
 pub struct LocalFS {
@@ -38,9 +72,10 @@ impl LocalFS {
     ) -> (Self, ProviderEntryReceiver, ProviderErrorReceiver) {
         let (entry_tx, entry_rx) = mpsc::channel();
         let (error_tx, error_rx) = mpsc::channel();
+        let path: PathBuf = path.into();
 
         return (
-            if let Ok(dir) = fs::canonicalize(path.into())
+            if let Some(dir) = normalise_path(&path.as_os_str().to_string_lossy())
                 && let Some(full_path) = dir.to_str().map(String::from)
                 && let Ok(ref metadata) = dir.metadata()
                 && let file_type = metadata.file_type()
@@ -64,6 +99,22 @@ impl LocalFS {
             entry_rx,
             error_rx,
         );
+    }
+
+    pub fn set_dir_from_path(&mut self, path: &str) -> LocalFSResult<()> {
+        let path =
+            normalise_path(path).ok_or(LocalFSError::PathCouldNotBeNormalised(path.to_string()))?;
+        let path = path.as_os_str().to_string_lossy().to_string();
+
+        let directory_entry = DirectoryEntry::new_from_path(&path)
+            .ok_or(LocalFSError::CouldNotGetEntryFromPath(path.clone()))?;
+
+        if let DirectoryEntry::Directory(_) = directory_entry {
+            self.current_dir = Some(directory_entry);
+            return Ok(());
+        }
+
+        return Err(LocalFSError::PathIsNotADirectory(path));
     }
 }
 
@@ -219,7 +270,7 @@ impl DirectoryProvider for LocalFS {
             _ => (),
         }
     }
-    fn current_dir(&self) -> Option<&DirectoryEntry> { return self.current_dir.as_ref() }
+    fn current_dir(&self) -> Option<&DirectoryEntry> { return self.current_dir.as_ref(); }
 
     fn send_entries(&self, entries: Vec<DirectoryEntry>) {
         if let Err(error) = self.entry_tx.send(entries) {
@@ -247,4 +298,12 @@ impl DirectoryProvider for LocalFS {
 
         return vec![];
     }
+
+    fn edit_err(&mut self, new_path: &str) -> EditResult {
+        return self
+            .set_dir_from_path(new_path)
+            .map_err(|e| return EditError::ProviderError(Box::new(e)));
+    }
+
+    fn supports_edit(&self) -> bool { return true; }
 }

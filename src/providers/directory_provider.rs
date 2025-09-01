@@ -5,8 +5,11 @@
 // ------
 // Copyright (c) 2025 Samuel Boyden. All rights reserved.
 
+#![allow(dead_code)]
+
+use crate::utils::normalise_path;
 use std::{
-    fmt::Debug,
+    fmt::{self, Debug, Display},
     fs::{self, Metadata},
     hash,
     path::{Path, PathBuf},
@@ -24,7 +27,7 @@ impl hash::Hash for NodeInformation {
 }
 
 impl PartialEq for NodeInformation {
-    fn eq(&self, other: &Self) -> bool { return self.full_path == other.full_path }
+    fn eq(&self, other: &Self) -> bool { return self.full_path == other.full_path; }
 }
 
 impl Eq for NodeInformation {}
@@ -103,11 +106,8 @@ impl File {
     }
 
     pub fn new_with_metadata(path: impl Into<PathBuf>, metadata: &Metadata) -> Option<Self> {
-        let path = path.into();
-        let full_path = fs::canonicalize(path.clone())
-            .ok()?
-            .to_string_lossy()
-            .to_string();
+        let path: PathBuf = path.into();
+        let full_path = path.canonicalize().ok()?.to_string_lossy().to_string();
 
         let can_read = fs::File::options()
             .read(true)
@@ -198,6 +198,18 @@ impl DirectoryEntry {
             DirectoryEntry::Unsupported(unsupported) => &unsupported.node,
         };
     }
+
+    pub fn new_from_path(path: &str) -> Option<Self> {
+        let path = normalise_path(path)?;
+
+        return Some(if path.is_dir() {
+            DirectoryEntry::Directory(Directory::new(path)?)
+        } else if path.is_file() {
+            DirectoryEntry::File(File::new(path)?)
+        } else {
+            DirectoryEntry::Unsupported(Unsupported::new(path)?)
+        });
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -218,6 +230,25 @@ pub type ProviderEntrySender = mpsc::Sender<Vec<DirectoryEntry>>;
 pub type ProviderErrorReceiver = mpsc::Receiver<anyhow::Error>;
 pub type ProviderErrorSender = mpsc::Sender<anyhow::Error>;
 
+pub(crate) trait ProviderError: Debug + Display + Send + Sync {}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EditError {
+    ProviderError(Box<dyn ProviderError>),
+}
+
+impl fmt::Display for EditError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let result = match self {
+            Self::ProviderError(error) => format!("Got an error from the provider: {error}"),
+        };
+
+        return f.write_str(&result);
+    }
+}
+
+pub type EditResult = Result<(), EditError>;
+
 pub trait DirectoryProvider: Debug {
     fn get_entries_with_options(&self, options: Option<GetEntriesOptions>);
     fn get_entries(&self) { self.get_entries_with_options(None) }
@@ -228,4 +259,8 @@ pub trait DirectoryProvider: Debug {
 
     fn send_entries(&self, entries: Vec<DirectoryEntry>);
     fn send_error(&self, error: anyhow::Error);
+
+    fn edit(&mut self, path: &str) -> bool { return self.edit_err(path).is_ok(); }
+    fn edit_err(&mut self, _: &str) -> EditResult { return Ok(()); }
+    fn supports_edit(&self) -> bool { return false; }
 }
