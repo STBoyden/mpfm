@@ -17,7 +17,7 @@ use crate::providers::{
     ProviderEntryReceiver, ProviderErrorReceiver, Unsupported,
 };
 use eframe::egui;
-use egui::{Color32, RichText};
+use egui::{Color32, Key, RichText};
 use std::{
     cell::RefCell,
     path::{MAIN_SEPARATOR_STR, PathBuf},
@@ -49,7 +49,7 @@ fn main() -> eframe::Result {
     );
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum EditMode {
     Active,
     Inactive,
@@ -101,6 +101,29 @@ impl App {
 
         return None;
     }
+
+    fn react_to_events(&mut self, ctx: &egui::Context) {
+        if self.edit_mode == EditMode::Active && ctx.input(|i| return i.key_pressed(Key::Enter)) {
+            self.submit_edit();
+        }
+    }
+
+    fn submit_edit(&mut self) {
+        if let Some(rc) = self.get_edit_string() {
+            let rc = Rc::clone(&rc);
+            let text = rc.borrow().clone();
+
+            let result = self.provider.edit_err(&text);
+            if let Err(error) = result
+                && let Err(send_error) = self.ui_error_tx.send(error.into())
+            {
+                log::error!("could not send UI error after editing: {send_error}");
+            }
+        }
+
+        self.edit_string = None;
+        self.edit_mode = EditMode::Inactive;
+    }
 }
 
 impl Default for App {
@@ -127,6 +150,7 @@ impl Default for App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.receive_from_channels();
+        self.react_to_events(ctx);
 
         egui::SidePanel::left("folder_panel").show(ctx, |ui| {
             ui.label("Folder panel");
@@ -149,22 +173,7 @@ impl eframe::App for App {
                         ui.separator();
 
                         if ui.button("Done").clicked() {
-                            if let Some(rc) = self.get_edit_string() {
-                                let rc = Rc::clone(&rc);
-                                let text = rc.borrow().clone();
-
-                                let result = self.provider.edit_err(&text);
-                                if let Err(error) = result
-                                    && let Err(send_error) = self.ui_error_tx.send(error.into())
-                                {
-                                    log::error!(
-                                        "could not send UI error after editing: {send_error}"
-                                    );
-                                }
-                            }
-
-                            self.edit_string = None;
-                            self.edit_mode = EditMode::Inactive;
+                            self.submit_edit();
                         }
                     }
                     EditMode::Inactive => {
