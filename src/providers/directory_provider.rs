@@ -235,12 +235,16 @@ pub(crate) trait ProviderError: Debug + Display + Send + Sync {}
 #[derive(Debug, thiserror::Error)]
 pub enum EditError {
     ProviderError(Box<dyn ProviderError>),
+    ProviderDoesNotImplement,
 }
 
 impl fmt::Display for EditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let result = match self {
             Self::ProviderError(error) => format!("Got an error from the provider: {error}"),
+            Self::ProviderDoesNotImplement => {
+                "The provider has not implemented edit functionality - please check `supports_edit` before using `edit_err` or `edit`".to_string()
+            }
         };
 
         return f.write_str(&result);
@@ -261,6 +265,8 @@ pub trait DirectoryProvider: Debug {
     fn send_error(&self, error: anyhow::Error);
 
     fn edit(&mut self, path: &str) -> bool { return self.edit_err(path).is_ok(); }
-    fn edit_err(&mut self, _: &str) -> EditResult { return Ok(()); }
-    fn supports_edit(&self) -> bool { return false; }
+    fn edit_err(&mut self, _: &str) -> EditResult {
+        return Err(EditError::ProviderDoesNotImplement);
+    }
+    fn supports_edit(&self) -> bool;
 }

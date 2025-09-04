@@ -9,6 +9,7 @@
 #![warn(clippy::pedantic, clippy::implicit_return)]
 #![allow(clippy::too_many_lines, clippy::needless_return)]
 
+mod assets;
 mod providers;
 mod utils;
 
@@ -17,7 +18,7 @@ use crate::providers::{
     ProviderEntryReceiver, ProviderErrorReceiver, Unsupported,
 };
 use eframe::egui;
-use egui::{Color32, Key, RichText};
+use egui::{AtomExt, Color32, Key, RichText, Vec2};
 use std::{
     cell::RefCell,
     path::{MAIN_SEPARATOR_STR, PathBuf},
@@ -45,7 +46,10 @@ fn main() -> eframe::Result {
     return eframe::run_native(
         "Multiplatform File Manager",
         options,
-        Box::new(|_| return Ok(Box::<App>::default())),
+        Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            return Ok(Box::<App>::default());
+        }),
     );
 }
 
@@ -224,8 +228,16 @@ impl eframe::App for App {
 
                 for entry in &self.entries {
                     match entry {
-                        DirectoryEntry::Directory(Directory { .. })
-                        | DirectoryEntry::File(File { .. }) => {
+                        DirectoryEntry::Directory(Directory { .. }) => {
+                            // TODO: Figure out why images loaded outside the visible get rendered
+                            // as error triangles.
+                            let image = assets::FOLDER_IMAGE.atom_max_size(Vec2::splat(10.0));
+
+                            if ui.button((image, entry.get_basename())).clicked() {
+                                self.provider.select_entry(ctx, entry.clone());
+                            }
+                        }
+                        DirectoryEntry::File(File { .. }) => {
                             if ui.button(entry.get_basename()).clicked() {
                                 self.provider.select_entry(ctx, entry.clone());
                             }
