@@ -19,6 +19,8 @@ use crate::providers::{
 };
 use eframe::egui;
 use egui::{AtomExt, Color32, Key, RichText, Vec2};
+#[cfg(not(target_os = "windows"))]
+use jemallocator::Jemalloc;
 use std::{
     cell::RefCell,
     path::{MAIN_SEPARATOR_STR, PathBuf},
@@ -26,6 +28,10 @@ use std::{
     sync::mpsc,
     vec,
 };
+
+#[cfg(not(target_os = "windows"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[cfg(not(debug_assertions))]
 const ENV_FILE: &str = ".env";
