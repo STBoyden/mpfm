@@ -18,14 +18,14 @@ use crate::providers::{
     ProviderEntryReceiver, ProviderErrorReceiver, Unsupported,
 };
 use eframe::egui;
-use egui::{AtomExt, Color32, Key, RichText, Vec2};
+use egui::{AtomExt, Color32, FontData, FontDefinitions, Key, RichText, Vec2};
 #[cfg(not(target_os = "windows"))]
 use jemallocator::Jemalloc;
 use std::{
     cell::RefCell,
     path::{MAIN_SEPARATOR_STR, PathBuf},
     rc::Rc,
-    sync::mpsc,
+    sync::{Arc, mpsc},
     vec,
 };
 
@@ -37,6 +37,45 @@ static GLOBAL: Jemalloc = Jemalloc;
 const ENV_FILE: &str = ".env";
 #[cfg(debug_assertions)]
 const ENV_FILE: &str = ".env.debug";
+
+fn load_fonts() -> FontDefinitions {
+    let mut font_definitions = FontDefinitions::default();
+
+    font_definitions.font_data.insert(
+        "pt-sans".to_string(),
+        Arc::new(FontData::from_static(assets::fonts::NORMAL)),
+    );
+    font_definitions.font_data.insert(
+        "pt-sans-italic".to_string(),
+        Arc::new(FontData::from_static(assets::fonts::ITALIC)),
+    );
+    font_definitions.font_data.insert(
+        "pt-sans-bold".to_string(),
+        Arc::new(FontData::from_static(assets::fonts::BOLD)),
+    );
+    font_definitions.font_data.insert(
+        "pt-sans-bold-italic".to_string(),
+        Arc::new(FontData::from_static(assets::fonts::BOLD_ITALIC)),
+    );
+    font_definitions.font_data.insert(
+        "iosevka".to_string(),
+        Arc::new(FontData::from_static(assets::fonts::MONOSPACE)),
+    );
+
+    font_definitions
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "pt-sans".to_string());
+
+    font_definitions
+        .families
+        .get_mut(&egui::FontFamily::Monospace)
+        .unwrap()
+        .insert(0, "iosevka".to_string());
+
+    return font_definitions;
+}
 
 fn main() -> eframe::Result {
     dotenv::from_filename(ENV_FILE)
@@ -54,6 +93,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+            cc.egui_ctx.set_fonts(load_fonts());
             return Ok(Box::<App>::default());
         }),
     );
@@ -237,7 +277,8 @@ impl eframe::App for App {
                         DirectoryEntry::Directory(Directory { .. }) => {
                             // TODO: Figure out why images loaded outside the visible get rendered
                             // as error triangles.
-                            let image = assets::FOLDER_IMAGE.atom_max_size(Vec2::splat(10.0));
+                            let image =
+                                assets::images::FOLDER_IMAGE.atom_max_size(Vec2::splat(10.0));
 
                             if ui.button((image, entry.get_basename())).clicked() {
                                 self.provider.select_entry(ctx, entry.clone());
