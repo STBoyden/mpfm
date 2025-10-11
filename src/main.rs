@@ -1,6 +1,13 @@
+#![feature(if_let_guard)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows
-#![warn(clippy::pedantic, clippy::implicit_return)]
-#![allow(clippy::too_many_lines, clippy::needless_return)]
+#![warn(clippy::pedantic)]
+#![allow(
+    clippy::too_many_lines,
+    clippy::needless_return,
+    mismatched_lifetime_syntaxes,
+    clippy::unused_self,
+    clippy::implicit_return
+)]
 
 mod assets;
 mod providers;
@@ -11,8 +18,13 @@ use crate::providers::{
     ProviderEntryReceiver, ProviderErrorReceiver, Unsupported,
 };
 use iced::{
-    Element, Length, Theme,
-    widget::{Column, column, container, horizontal_rule, row},
+    Element, Length, Size, Subscription, Theme,
+    alignment::{Horizontal, Vertical},
+    widget::{
+        Column, button, column, container, horizontal_rule, pane_grid, responsive, row, text,
+        vertical_rule,
+    },
+    window,
 };
 use iced_aw::{SlideBar, widget::Sidebar};
 use iced_modern_theme::Modern;
@@ -35,17 +47,33 @@ const ENV_FILE: &str = ".env";
 #[cfg(debug_assertions)]
 const ENV_FILE: &str = ".env.debug";
 
+const MAX_SIDEBAR_WIDTH: f32 = 100.0;
+
 #[derive(Debug, Clone)]
 enum Message {
     SetDirectory(String),
-    SetSidebarWidth(f32),
+
+    // pane-related
+    PaneResized(pane_grid::ResizeEvent),
+
+    // window-related
+    WindowResized(Size),
+}
+
+enum Pane {
+    Sidebar,
+    MainContent,
 }
 
 struct Model {
     provider: Box<dyn DirectoryProvider>,
 
     // view values
-    sidebar_width: f32,
+    panes:         pane_grid::State<Pane>,
+    sidebar_split: Option<pane_grid::Split>,
+
+    // window size
+    window_size: Size,
 }
 
 impl Default for Model {
@@ -59,9 +87,22 @@ impl Default for Model {
             dirs::home_dir().map_or(".".into(), |x| return x.to_string_lossy().to_string()),
         );
 
+        let (mut panes, main_content) = pane_grid::State::new(Pane::MainContent);
+        let pane_split = panes.split(pane_grid::Axis::Vertical, main_content, Pane::Sidebar);
+        let mut sidebar_split = None;
+
+        if let Some((sidebar_pane, split)) = pane_split {
+            panes.swap(main_content, sidebar_pane);
+            panes.resize(split, 0.33);
+
+            sidebar_split = Some(split);
+        }
+
         return Model {
-            provider:      Box::new(local_fs),
-            sidebar_width: 100.0,
+            provider: Box::new(local_fs),
+            panes,
+            sidebar_split,
+            window_size: Size::UNIT,
         };
     }
 }
@@ -75,28 +116,61 @@ impl Model {
                         .select_entry(DirectoryEntry::Directory(directory));
                 }
             }
+            Message::PaneResized(pane_grid::ResizeEvent { split, ratio })
+                if let Some(sidebar_split) = self.sidebar_split
+                    && sidebar_split == split =>
+            {
+                let constrained_ratio = ratio.clamp(0.2, 0.33);
+                log::trace!(
+                    "Sidebar pane resized, ratio: {ratio}, post-constraint: {constrained_ratio}"
+                );
 
-            Message::SetSidebarWidth(width) => {
-                self.sidebar_width = width;
+                self.panes.resize(split, constrained_ratio);
+            }
+
+            Message::PaneResized(_) => {}
+
+            Message::WindowResized(window_size) => {
+                self.window_size = window_size;
             }
         }
     }
 
-    pub fn theme(&self) -> Theme { return iced_modern_theme::Modern::dark_theme(); }
+    pub fn theme(&self) -> Theme { return Modern::dark_theme(); }
+
+    pub fn resize_window_subscription(&self) -> Subscription<Message> {
+        return window::resize_events().map(|(_, size)| {
+            log::trace!("Window resized to {size:#?}");
+            return Message::WindowResized(size);
+        });
+    }
 
     pub fn view(&self) -> Element<Message> {
         return container(column![
-            row![],
-            horizontal_rule(2),
-            row![
-                container(column![])
-                    .style(Modern::floating_container())
-                    .padding(15)
-                    .width(Length::Fixed(self.sidebar_width)),
-                container(column![]).padding(15).width(Length::Fill)
-            ]
+            container(text("up bar"))
+                .align_x(Horizontal::Center)
+                .width(Length::Fill),
+            pane_grid(&self.panes, |_, state, _| {
+                pane_grid::Content::new(responsive(move |_| {
+                    match state {
+                        Pane::MainContent => container(column![text("Main content")])
+                            .padding(5)
+                            .width(Length::Fill)
+                            .height(Length::Fill),
+                        Pane::Sidebar => container(column![text("Sidebar content")])
+                            .style(Modern::floating_container())
+                            .padding(15)
+                            .width(Length::Fill)
+                            .height(Length::Fill),
+                    }
+                    .into()
+                }))
+            })
             .height(Length::Fill)
+            .width(Length::Fill)
+            .on_resize(10, Message::PaneResized)
         ])
+        .padding(2)
         .height(Length::Fill)
         .into();
     }
@@ -104,6 +178,7 @@ impl Model {
 
 fn main() -> iced::Result {
     return iced::application("Multiplatform File Manager", Model::update, Model::view)
+        .subscription(Model::resize_window_subscription)
         .theme(Model::theme)
         .run();
 }
