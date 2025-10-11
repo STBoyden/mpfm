@@ -257,7 +257,7 @@ pub trait DirectoryProvider: Debug {
     fn get_entries_with_options(&self, options: Option<GetEntriesOptions>);
     fn get_entries(&self) { self.get_entries_with_options(None) }
 
-    fn select_entry(&mut self, ctx: &egui::Context, entry: DirectoryEntry);
+    fn select_entry(&mut self, entry: DirectoryEntry);
     fn current_dir(&self) -> Option<&DirectoryEntry>;
     fn get_dir_parts(&self) -> Vec<String>;
 

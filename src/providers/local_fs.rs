@@ -246,12 +246,11 @@ impl DirectoryProvider for LocalFS {
         }
     }
 
-    fn select_entry(&mut self, ctx: &egui::Context, entry: DirectoryEntry) {
+    fn select_entry(&mut self, entry: DirectoryEntry) {
         match &entry {
             directory @ DirectoryEntry::Directory(Directory { can_read, .. }) => {
                 if *can_read {
                     self.current_dir = Some(directory.clone());
-                    ctx.request_repaint();
                 }
             }
             DirectoryEntry::File(File {
