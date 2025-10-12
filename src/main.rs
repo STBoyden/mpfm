@@ -17,8 +17,9 @@ use crate::providers::{
     Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation,
     ProviderEntryReceiver, ProviderErrorReceiver, Unsupported,
 };
+use font_kit::{family_name::FamilyName, properties::Properties, source::SystemSource};
 use iced::{
-    Element, Length, Size, Subscription, Theme,
+    Element, Length, Size, Subscription, Task, Theme,
     alignment::{Horizontal, Vertical},
     widget::{
         Column, button, column, container, horizontal_rule, pane_grid, responsive, row, text,
@@ -31,7 +32,9 @@ use iced_modern_theme::Modern;
 #[cfg(not(target_os = "windows"))]
 use jemallocator::Jemalloc;
 use std::{
+    borrow::Cow,
     cell::RefCell,
+    io::Read,
     path::{MAIN_SEPARATOR_STR, PathBuf},
     rc::Rc,
     sync::{Arc, mpsc},
@@ -47,8 +50,6 @@ const ENV_FILE: &str = ".env";
 #[cfg(debug_assertions)]
 const ENV_FILE: &str = ".env.debug";
 
-const MAX_SIDEBAR_WIDTH: f32 = 100.0;
-
 #[derive(Debug, Clone)]
 enum Message {
     SetDirectory(String),
@@ -58,6 +59,11 @@ enum Message {
 
     // window-related
     WindowResized(Size),
+
+    // font loading
+    LoadFonts,
+    GotFontData(Cow<'static, [u8]>),
+    FontLoadResult(Option<iced::font::Error>),
 }
 
 enum Pane {
@@ -108,13 +114,15 @@ impl Default for Model {
 }
 
 impl Model {
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SetDirectory(directory) => {
                 if let Some(directory) = Directory::new(directory) {
                     self.provider
                         .select_entry(DirectoryEntry::Directory(directory));
                 }
+
+                return Task::none();
             }
             Message::PaneResized(pane_grid::ResizeEvent { split, ratio })
                 if let Some(sidebar_split) = self.sidebar_split
@@ -126,12 +134,35 @@ impl Model {
                 );
 
                 self.panes.resize(split, constrained_ratio);
+
+                return Task::none();
             }
 
-            Message::PaneResized(_) => {}
+            Message::PaneResized(_) => {
+                return Task::none();
+            }
 
             Message::WindowResized(window_size) => {
                 self.window_size = window_size;
+
+                return Task::none();
+            }
+
+            Message::LoadFonts => {
+                log::trace!("Started loading fonts...");
+                return load_fonts();
+            }
+
+            Message::GotFontData(data) => {
+                return iced::font::load(data).map(|x| Message::FontLoadResult(x.err()));
+            }
+
+            Message::FontLoadResult(error) => {
+                if let Some(error) = error {
+                    log::trace!("Could not load font: {error:?}");
+                }
+
+                return Task::none();
             }
         }
     }
@@ -143,6 +174,10 @@ impl Model {
             log::trace!("Window resized to {size:#?}");
             return Message::WindowResized(size);
         });
+    }
+
+    pub fn load_fonts_subscription(&self) -> Subscription<Message> {
+        return window::open_events().map(|_| Message::LoadFonts);
     }
 
     pub fn view(&self) -> Element<Message> {
@@ -179,8 +214,25 @@ impl Model {
 fn main() -> iced::Result {
     return iced::application("Multiplatform File Manager", Model::update, Model::view)
         .subscription(Model::resize_window_subscription)
+        .subscription(Model::load_fonts_subscription)
         .theme(Model::theme)
         .run();
+}
+
+fn load_fonts() -> Task<Message> {
+    let system_sans_serif =
+        SystemSource::new().select_best_match(&[FamilyName::SansSerif], &Properties::new());
+
+    if let Ok(handle) = system_sans_serif
+        && let Ok(font) = handle.load()
+        && let Some(arc_font_data) = font.copy_font_data()
+    {
+        let font_data: Vec<u8> = Arc::clone(&arc_font_data).to_vec();
+
+        return Task::done(Cow::Owned(font_data)).map(Message::GotFontData);
+    }
+
+    return Task::none();
 }
 
 // fn load_fonts() -> FontDefinitions {
