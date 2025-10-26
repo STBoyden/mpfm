@@ -1,10 +1,3 @@
-// File name: local_fs.rs
-// Author: Samuel Boyden
-// Date created: 2025-08-04
-// Date modified: 2025-08-27
-// ------
-// Copyright (c) 2025 Samuel Boyden. All rights reserved.
-
 use crate::{
     providers::{
         Directory, DirectoryEntry, DirectoryProvider, EditError, EditResult, File,
@@ -14,6 +7,7 @@ use crate::{
     utils::{ArcRwLock, normalise_path, pretty_duration},
 };
 use anyhow::anyhow;
+use async_std::task;
 use rayon::prelude::*;
 use std::{
     cmp,
@@ -21,7 +15,8 @@ use std::{
     fmt::{self},
     fs, io,
     path::{self, PathBuf},
-    sync::{RwLock, mpsc},
+    pin::Pin,
+    sync::RwLock,
     time,
 };
 
@@ -70,8 +65,8 @@ impl LocalFS {
     pub fn new_from_directory_path(
         path: impl Into<PathBuf>,
     ) -> (Self, ProviderEntryReceiver, ProviderErrorReceiver) {
-        let (entry_tx, entry_rx) = mpsc::channel();
-        let (error_tx, error_rx) = mpsc::channel();
+        let (entry_tx, entry_rx) = async_channel::unbounded();
+        let (error_tx, error_rx) = async_channel::unbounded();
         let path: PathBuf = path.into();
 
         return (
@@ -128,7 +123,9 @@ impl DirectoryProvider for LocalFS {
             if let Some(cache) = self.cache.read().ok()
                 && let Some(cached) = cache.get(&directory.node.full_path)
             {
-                self.send_entries(cached.clone());
+                task::block_on(async {
+                    self.send_entries(cached.clone()).await;
+                });
                 return;
             }
 
@@ -139,7 +136,9 @@ impl DirectoryProvider for LocalFS {
                     directory.node.full_path
                 );
 
-                self.send_error(anyhow!(error));
+                task::block_on(async {
+                    self.send_error(anyhow!(error)).await;
+                });
                 return;
             }
             let readdir = readdir.unwrap().par_bridge();
@@ -242,7 +241,9 @@ impl DirectoryProvider for LocalFS {
                 cache.insert(directory.node.full_path.clone(), entries.clone());
             }
 
-            self.send_entries(entries);
+            task::block_on(async {
+                self.send_entries(entries).await;
+            });
         }
     }
 
@@ -263,7 +264,10 @@ impl DirectoryProvider for LocalFS {
 
                 if let Err(error) = open::that(name) {
                     log::error!("couldn't open \"{name}\": {error}");
-                    self.send_error(anyhow!(error));
+
+                    task::block_on(async {
+                        self.send_error(anyhow!(error)).await;
+                    });
                 }
             }
             _ => (),
@@ -271,17 +275,21 @@ impl DirectoryProvider for LocalFS {
     }
     fn current_dir(&self) -> Option<&DirectoryEntry> { return self.current_dir.as_ref(); }
 
-    fn send_entries(&self, entries: Vec<DirectoryEntry>) {
-        if let Err(error) = self.entry_tx.send(entries) {
-            log::error!("could not send entry to front-end: {error}");
-            self.send_error(anyhow!(error));
-        }
+    fn send_entries(&self, entries: Vec<DirectoryEntry>) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+        Box::pin(async {
+            if let Err(error) = self.entry_tx.send(entries).await {
+                log::error!("could not send entry to front-end: {error}");
+                self.send_error(anyhow!(error)).await;
+            }
+        })
     }
 
-    fn send_error(&self, error: anyhow::Error) {
-        if let Err(error) = self.error_tx.send(error) {
-            log::error!("could not send error to front-end: {error}");
-        }
+    fn send_error(&self, error: anyhow::Error) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+        Box::pin(async {
+            if let Err(error) = self.error_tx.send(error).await {
+                log::error!("could not send error to front-end: {error}");
+            }
+        })
     }
 
     fn get_dir_parts(&self) -> Vec<String> {

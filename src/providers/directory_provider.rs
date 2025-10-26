@@ -8,12 +8,13 @@
 #![allow(dead_code)]
 
 use crate::utils::normalise_path;
+use async_channel::{Receiver, Sender};
 use std::{
     fmt::{self, Debug, Display},
     fs::{self, Metadata},
     hash,
     path::{Path, PathBuf},
-    sync::mpsc,
+    pin::Pin,
 };
 
 #[derive(Debug, Clone)]
@@ -225,10 +226,10 @@ impl Default for GetEntriesOptions {
     }
 }
 
-pub type ProviderEntryReceiver = mpsc::Receiver<Vec<DirectoryEntry>>;
-pub type ProviderEntrySender = mpsc::Sender<Vec<DirectoryEntry>>;
-pub type ProviderErrorReceiver = mpsc::Receiver<anyhow::Error>;
-pub type ProviderErrorSender = mpsc::Sender<anyhow::Error>;
+pub type ProviderEntryReceiver = Receiver<Vec<DirectoryEntry>>;
+pub type ProviderEntrySender = Sender<Vec<DirectoryEntry>>;
+pub type ProviderErrorReceiver = Receiver<anyhow::Error>;
+pub type ProviderErrorSender = Sender<anyhow::Error>;
 
 pub(crate) trait ProviderError: Debug + Display + Send + Sync {}
 
@@ -252,6 +253,7 @@ impl fmt::Display for EditError {
 }
 
 pub type EditResult = Result<(), EditError>;
+pub(crate) type PinnedFuture<'a, Output> = Pin<Box<dyn Future<Output = Output> + 'a>>;
 
 pub trait DirectoryProvider: Debug {
     fn get_entries_with_options(&self, options: Option<GetEntriesOptions>);
@@ -261,8 +263,8 @@ pub trait DirectoryProvider: Debug {
     fn current_dir(&self) -> Option<&DirectoryEntry>;
     fn get_dir_parts(&self) -> Vec<String>;
 
-    fn send_entries(&self, entries: Vec<DirectoryEntry>);
-    fn send_error(&self, error: anyhow::Error);
+    fn send_entries(&self, entries: Vec<DirectoryEntry>) -> PinnedFuture<'_, ()>;
+    fn send_error(&self, error: anyhow::Error) -> PinnedFuture<'_, ()>;
 
     fn edit(&mut self, path: &str) -> bool { return self.edit_err(path).is_ok(); }
     fn edit_err(&mut self, _: &str) -> EditResult {

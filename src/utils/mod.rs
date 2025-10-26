@@ -1,4 +1,5 @@
 mod arc_rwlock;
+mod channel_stream;
 mod paths;
 mod pretty_duration;
 
