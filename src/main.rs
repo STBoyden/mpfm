@@ -14,34 +14,23 @@ mod providers;
 mod utils;
 
 use crate::providers::{
-    Directory, DirectoryEntry, DirectoryProvider, File, LocalFS, NodeInformation, PinnedFuture,
-    ProviderEntryReceiver, ProviderEntrySender, ProviderErrorReceiver, Unsupported,
+    Directory, DirectoryEntry, DirectoryProvider, LocalFS,
+    ProviderEntryReceiver,
 };
-use font_kit::{family_name::FamilyName, properties::Properties, source::SystemSource};
 use iced::{
-    Element, Font, Length, Settings, Size, Subscription, Task, Theme,
-    alignment::{Horizontal, Vertical},
-    futures::{SinkExt, Stream, StreamExt, stream as futures_stream},
+    Element, Length, Size, Subscription, Task, Theme,
+    alignment::Horizontal,
+    futures::{SinkExt, StreamExt},
     stream,
     widget::{
-        Column, button, column, container, horizontal_rule, pane_grid, responsive, row, text,
-        vertical_rule,
+        column, container, pane_grid, responsive, text,
     },
     window,
 };
-use iced_aw::{SlideBar, widget::Sidebar};
 use iced_modern_theme::Modern;
 #[cfg(not(target_os = "windows"))]
 use jemallocator::Jemalloc;
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    io::Read,
-    path::{MAIN_SEPARATOR_STR, PathBuf},
-    rc::Rc,
-    sync::{Arc, mpsc},
-    usize, vec,
-};
+use std::vec;
 
 #[cfg(not(target_os = "windows"))]
 #[global_allocator]
